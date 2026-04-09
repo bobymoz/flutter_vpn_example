@@ -26,6 +26,15 @@ android {
     namespace "com.jinoca.vpn"
     compileSdk 34
 
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
     }
@@ -43,20 +52,8 @@ android {
             signingConfig signingConfigs.debug
         }
     }
-
-    // Garante que o Java 8/17 não entrem em conflito
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-    }
-    kotlinOptions {
-        jvmTarget = '1.8'
-    }
 }
 
 flutter {
     source '../..'
-}
-
-dependencies {
 }
