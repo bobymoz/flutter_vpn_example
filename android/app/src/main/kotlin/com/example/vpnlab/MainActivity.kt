@@ -1,4 +1,4 @@
-package com.serkandyck.freevpn
+package com.jinoca.vpn
 
 import io.flutter.embedding.android.FlutterActivity
 
