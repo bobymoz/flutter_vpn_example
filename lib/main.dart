@@ -32,7 +32,7 @@ class VpnScreen extends StatefulWidget {
 class _VpnScreenState extends State<VpnScreen> {
   late OpenVPN engine;
   VpnStatus? status;
-  VPNStage? stage; // <-- O novo controlador de estágios adicionado aqui
+  VPNStage? stage;
 
   
   String _getSecureConfig() {
@@ -223,24 +223,23 @@ a97a26f89af95d50488bae8ed6d1a9a3
   @override
   void initState() {
     super.initState();
+    
+    // O motor novo exige que as funções de ouvir a conexão fiquem direto na criação dele
     engine = OpenVPN(
-      engineCreated: () {
-        engine.initialize(
-          groupIdentifier: "group.com.jinoca.vpn",
-          providerBundleIdentifier: "com.jinoca.vpn.VPNExtension",
-          localizedDescription: "Jinoca VPN",
-        );
+      onVpnStatusChanged: (VpnStatus? s) {
+        if (mounted) setState(() { status = s; });
+      },
+      onVpnStageChanged: (VPNStage? s, String? raw) {
+        if (mounted) setState(() { stage = s; });
       },
     );
     
-    // Adicionamos os dois ouvintes separados agora
-    engine.status.listen((VpnStatus? s) {
-      if (mounted) setState(() { status = s; });
-    });
-    
-    engine.vPNStage.listen((VPNStage? s) {
-      if (mounted) setState(() { stage = s; });
-    });
+    // E depois de criado, mandamos inicializar
+    engine.initialize(
+      groupIdentifier: "group.com.jinoca.vpn",
+      providerBundleIdentifier: "com.jinoca.vpn.VPNExtension",
+      localizedDescription: "Jinoca VPN",
+    );
   }
 
   void _toggleVpn() {
