@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:wireguard_flutter/wireguard_flutter.dart';
+import 'package:wireguard_flutter/wireGuard_flutter.dart';
 
 void main() {
   runApp(const MyApp());
