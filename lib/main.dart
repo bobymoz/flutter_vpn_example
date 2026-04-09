@@ -33,17 +33,17 @@ class _VpnScreenState extends State<VpnScreen> {
   late OpenVPN engine;
   VpnStatus? status;
 
-  // MONTADOR FANTASMA DA CONFIGURAÇÃO
-  // Isso impede que scanners achem seu IP no código fonte
+  
+  
   String _getSecureConfig() {
-    // Matemática simples para gerar: 51.79.117.132
+    
     final p1 = 102 ~/ 2;
     final p2 = 158 ~/ 2;
     final p3 = 234 ~/ 2;
     final p4 = 264 ~/ 2;
     final hiddenIp = '$p1.$p2.$p3.$p4';
 
-    // O arquivo .ovpn é montado apenas na memória RAM
+    
     return '''
 client
 dev tun
