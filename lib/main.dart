@@ -14,7 +14,7 @@ class MyApp extends StatelessWidget {
       title: 'Jinoca VPN',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFF1A1A2E), // Fundo escuro
+        scaffoldBackgroundColor: const Color(0xFF1A1A2E), 
       ),
       home: const VpnScreen(),
     );
@@ -32,19 +32,12 @@ class _VpnScreenState extends State<VpnScreen> {
   late OpenVPN engine;
   VPNStage? stage;
 
-  // CONFIGURAÇÃO LIMPA E SEM LIXO TEXTUAL (Com IP Fantasma)
-  String _getSecureConfig() {
-    final p1 = 102 ~/ 2;
-    final p2 = 158 ~/ 2;
-    final p3 = 234 ~/ 2;
-    final p4 = 264 ~/ 2;
-    final hiddenIp = '$p1.$p2.$p3.$p4';
-
-    return '''
-client
+  // CONFIGURAÇÃO 100% DIRETA E EM TEXTO LIMPO
+  // Sem criptografia, alinhado à esquerda para não haver erros de leitura
+  final String vpnConfig = '''client
 dev tun
 proto udp
-remote $hiddenIp 53
+remote 51.79.117.132 53
 resolv-retry infinite
 nobind
 persist-key
@@ -150,9 +143,7 @@ fa810769ba03b7340687181ed91d0acf
 e6ebea0e3c969892527fb2d38ce679c4
 a97a26f89af95d50488bae8ed6d1a9a3
 -----END OpenVPN Static key V1-----
-</tls-crypt>
-''';
-  }
+</tls-crypt>''';
 
   @override
   void initState() {
@@ -176,9 +167,9 @@ a97a26f89af95d50488bae8ed6d1a9a3
     if (stage == VPNStage.connected) {
       engine.disconnect();
     } else {
-      // Pede permissão de rede para o Android (Aparece o popup com a chavinha)
+      // Pede permissão e conecta usando o texto estático
       engine.requestPermissionAndroid().then((value) {
-        engine.connect(_getSecureConfig(), "JinocaVPN", username: "", password: "", certIsRequired: true);
+        engine.connect(vpnConfig, "JinocaVPN", username: "", password: "", certIsRequired: true);
       });
     }
   }
