@@ -11,7 +11,7 @@ workflows:
           flutter pub get
       - name: Compilar APK (Para você testar no celular)
         script: |
-          flutter build apk --release --obfuscate --split-debug-info=./build/app/outputs/symbols
+          flutter build apk --release --obfuscate --split-debug-info=./build/app/outputs/symbols --split-per-abi
       - name: Compilar AAB (Para a Google Play Store)
         script: |
           flutter build appbundle --release --obfuscate --split-debug-info=./build/app/outputs/symbols
