@@ -32,18 +32,16 @@ class VpnScreen extends StatefulWidget {
 class _VpnScreenState extends State<VpnScreen> {
   late OpenVPN engine;
   VpnStatus? status;
+  VPNStage? stage; // <-- O novo controlador de estágios adicionado aqui
 
   
-  
   String _getSecureConfig() {
-    
     final p1 = 102 ~/ 2;
     final p2 = 158 ~/ 2;
     final p3 = 234 ~/ 2;
     final p4 = 264 ~/ 2;
     final hiddenIp = '$p1.$p2.$p3.$p4';
 
-    
     return '''
 client
 dev tun
@@ -234,34 +232,35 @@ a97a26f89af95d50488bae8ed6d1a9a3
         );
       },
     );
-    engine.status.listen((VpnStatus s) {
-      if (mounted) {
-        setState(() {
-          status = s;
-        });
-      }
+    
+    // Adicionamos os dois ouvintes separados agora
+    engine.status.listen((VpnStatus? s) {
+      if (mounted) setState(() { status = s; });
+    });
+    
+    engine.vPNStage.listen((VPNStage? s) {
+      if (mounted) setState(() { stage = s; });
     });
   }
 
   void _toggleVpn() {
-    if (status?.isConnected ?? false) {
+    if (stage == VPNStage.connected) {
       engine.disconnect();
     } else {
-      // Chama a função que monta a string na hora!
       engine.connect(_getSecureConfig(), "JinocaVPN", username: "", password: "", certIsRequired: true);
     }
   }
 
   String get _stateText {
-    if (status == null || status!.stage == VPNStage.disconnected) return 'TOCAR PARA CONECTAR';
-    if (status!.isConnected) return 'CONECTADO';
+    if (stage == VPNStage.connected) return 'CONECTADO';
+    if (stage == VPNStage.disconnected || stage == null) return 'TOCAR PARA CONECTAR';
     return 'CONECTANDO...';
   }
 
   Color get _buttonColor {
-    if (status?.isConnected ?? false) return Colors.greenAccent;
-    if (status != null && status!.stage != VPNStage.disconnected) return Colors.orangeAccent;
-    return Colors.redAccent;
+    if (stage == VPNStage.connected) return Colors.greenAccent;
+    if (stage == VPNStage.disconnected || stage == null) return Colors.redAccent;
+    return Colors.orangeAccent;
   }
 
   @override
