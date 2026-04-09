@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_vpn/flutter_vpn.dart';
+import 'package:flutter_vpn/state.dart'; // <-- A LINHA MÁGICA QUE FALTAVA!
 
 void main() {
   runApp(const MyApp());
@@ -42,9 +43,11 @@ class _VpnScreenState extends State<VpnScreen> {
     super.initState();
     FlutterVpn.prepare();
     FlutterVpn.onStateChanged.listen((FlutterVpnState state) {
-      setState(() {
-        _state = state;
-      });
+      if (mounted) {
+        setState(() {
+          _state = state;
+        });
+      }
     });
   }
 
