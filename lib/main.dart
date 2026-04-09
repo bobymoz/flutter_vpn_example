@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:wireguard_flutter/wireGuard_flutter.dart';
+import 'package:wireguard_flutter/wireguard_flutter.dart';
 
 void main() {
   runApp(const MyApp());
@@ -14,7 +14,7 @@ class MyApp extends StatelessWidget {
       title: 'Jinoca VPN',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFF0F172A), // Fundo noturno ultra moderno
+        scaffoldBackgroundColor: const Color(0xFF0F172A), 
       ),
       home: const VpnHome(),
     );
@@ -29,11 +29,12 @@ class VpnHome extends StatefulWidget {
 }
 
 class _VpnHomeState extends State<VpnHome> {
-  final _wireguard = WireguardFlutter.instance;
+  // AQUI ESTÁ A CORREÇÃO: "G" maiúsculo no WireGuard
+  final _wireguard = WireGuardFlutter.instance;
   bool _isConnected = false;
   String _statusText = "TOCAR PARA CONECTAR";
 
-  // SUAS CREDENCIAIS DO WIREGUARD (Injetadas exatamente como a VPS gerou)
+  // SUAS CREDENCIAIS DO WIREGUARD 
   final String wgConfig = '''
 [Interface]
 Address = 10.7.0.2/24
@@ -51,54 +52,53 @@ PersistentKeepalive = 25
   @override
   void initState() {
     super.initState();
-    _checkStatus();
+    _initWireguard();
   }
 
-  void _checkStatus() async {
+  void _initWireguard() async {
     try {
-      final status = await _wireguard.isConnected();
-      if (mounted) {
-        setState(() {
-          _isConnected = status;
-          _statusText = _isConnected ? "CONECTADO E PROTEGIDO" : "TOCAR PARA CONECTAR";
-        });
-      }
+      // O WireGuard exige um nome de interface invisível, vamos usar 'wg0'
+      await _wireguard.initialize(interfaceName: 'wg0');
+      
+      // Esse ouvinte vai atualizar o botão em tempo real
+      _wireguard.vpnStageSnapshot.listen((event) {
+        if (mounted) {
+          setState(() {
+            if (event == "connected") {
+              _isConnected = true;
+              _statusText = "CONECTADO E PROTEGIDO";
+            } else if (event == "disconnected") {
+              _isConnected = false;
+              _statusText = "TOCAR PARA CONECTAR";
+            } else if (event == "denied") {
+              _isConnected = false;
+              _statusText = "PERMISSÃO NEGADA";
+            } else {
+              _statusText = event.toUpperCase() + "...";
+            }
+          });
+        }
+      });
     } catch (e) {
-      debugPrint("Erro ao checar status: \$e");
+      debugPrint("Erro ao inicializar: \$e");
     }
   }
 
   void _toggleVpn() async {
-    setState(() {
-      _statusText = _isConnected ? "DESCONECTANDO..." : "CONECTANDO...";
-    });
-
     try {
       if (_isConnected) {
-        await _wireguard.disconnect();
+        // Comando nativo para desligar o motor
+        await _wireguard.stopVpn();
       } else {
-        // Inicializa a configuração do WireGuard no sistema Android
-        await _wireguard.initialize(packageId: "com.jinoca.vpn");
-        
-        // Pede a permissão, salva a configuração e liga
+        // Comando nativo para iniciar o motor
         await _wireguard.startVpn(
           serverAddress: "51.79.117.132:53",
           wgQuickConfig: wgConfig,
-          providerBundleIdentifier: "com.jinoca.vpn.VPNExtension",
+          providerBundleIdentifier: "com.jinoca.vpn", 
         );
       }
-      
-      // Aguarda 1 segundo para o Android respirar e checa se deu certo
-      await Future.delayed(const Duration(seconds: 1));
-      _checkStatus();
-      
     } catch (e) {
       debugPrint("Erro na VPN: \$e");
-      if (mounted) {
-        setState(() {
-          _statusText = "ERRO NA CONEXÃO";
-        });
-      }
     }
   }
 
