@@ -8,20 +8,9 @@ allprojects {
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
-    project.evaluationDependsOn(':app')
-}
-
-tasks.register("clean", Delete) {
-    delete rootProject.buildDir
-}
-
-// --- O HACK PARA SALVAR BIBLIOTECAS ANTIGAS ---
-// Isso aqui pega as bibliotecas velhas (como o flutter_vpn) 
-// e injeta o namespace nelas para o Android novo parar de chorar.
-subprojects {
-    afterEvaluate { project ->
+    
+    // --- O HACK TEM QUE FICAR AQUI, ANTES DE AVALIAR O PROJETO ---
+    project.afterEvaluate {
         if (project.hasProperty('android')) {
             project.android {
                 if (namespace == null) {
@@ -30,4 +19,13 @@ subprojects {
             }
         }
     }
+}
+
+// O comando que inicia a avaliação do projeto agora fica separado no final
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
 }
