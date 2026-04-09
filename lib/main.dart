@@ -32,8 +32,7 @@ class _VpnScreenState extends State<VpnScreen> {
   late OpenVPN engine;
   VPNStage? stage;
 
-  // CONFIGURAÇÃO 100% DIRETA E EM TEXTO LIMPO
-  // Sem criptografia, alinhado à esquerda para não haver erros de leitura
+  // CONFIGURAÇÃO DIRETA COM O SEU IP E PORTA 53
   final String vpnConfig = '''client
 dev tun
 proto udp
@@ -167,10 +166,15 @@ a97a26f89af95d50488bae8ed6d1a9a3
     if (stage == VPNStage.connected) {
       engine.disconnect();
     } else {
-      // Pede permissão e conecta usando o texto estático
-      engine.requestPermissionAndroid().then((value) {
-        engine.connect(vpnConfig, "JinocaVPN", username: "", password: "", certIsRequired: true);
-      });
+      // 1. Pede a permissão e aguarda (await) a resposta do Android
+      await engine.requestPermissionAndroid();
+      
+      // 2. Tenta ligar com o certIsRequired como FALSE (aqui estava o erro!)
+      engine.connect(
+        vpnConfig,
+        "JinocaVPN",
+        certIsRequired: false, 
+      );
     }
   }
 
@@ -178,6 +182,8 @@ a97a26f89af95d50488bae8ed6d1a9a3
     if (stage == VPNStage.connected) return 'CONECTADO';
     if (stage == VPNStage.disconnected || stage == null) return 'TOCAR PARA CONECTAR';
     if (stage == VPNStage.authenticating) return 'AUTENTICANDO...';
+    if (stage == VPNStage.resolve) return 'RESOLVENDO IP...';
+    if (stage == VPNStage.tcp_connect) return 'ESTABELECENDO REDE...';
     return 'CONECTANDO...';
   }
 
