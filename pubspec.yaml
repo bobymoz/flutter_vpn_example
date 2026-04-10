@@ -1,6 +1,5 @@
-name: vpnlab
-description: Jinoca VPN
-
+name: nocix
+description: Nocix VPN Professional
 version: 1.0.0+1
 
 environment:
@@ -9,11 +8,23 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  wireguard_flutter: ^0.1.1 
+  wireguard_flutter: ^0.1.3
+  google_fonts: ^6.1.0 # Para tipografia profissional
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.13.1 # Gera os ícones automaticamente
+
+# CONFIGURAÇÃO DO ÍCONE (O Codemagic lerá isto)
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/LOGO.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/LOGO.png
+    - assets/FUNDO.png
