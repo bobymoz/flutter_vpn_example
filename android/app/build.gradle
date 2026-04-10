@@ -24,7 +24,7 @@ if (flutterVersionName == null) {
 
 android {
     namespace "com.jinoca.vpn"
-    compileSdk 35
+    compileSdk 36
     ndkVersion = "28.2.13676358" 
 
 
