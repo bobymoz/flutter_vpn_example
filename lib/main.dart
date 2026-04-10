@@ -1,33 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:wireguard_flutter/wireguard_flutter.dart';
+import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'dart:async';
 import 'dart:io';
 
-void main() => runApp(const NocixApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const NocixApp());
+}
 
 class NocixApp extends StatelessWidget {
   const NocixApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Nocix',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
-      ),
+      theme: ThemeData(brightness: Brightness.dark),
       home: const MainScreen(),
     );
   }
-}
-
-class VpnServer {
-  final String name;
-  final String flag;
-  final String config;
-  VpnServer(this.name, this.flag, this.config);
 }
 
 class MainScreen extends StatefulWidget {
@@ -40,16 +32,12 @@ class _MainScreenState extends State<MainScreen> {
   final _wireguard = WireGuardFlutter.instance;
   VpnStage _stage = VpnStage.disconnected;
   
-  // Real Speed Logic
-  double _downSpeed = 0.0;
-  double _upSpeed = 0.0;
-  Timer? _statsTimer;
+  // Unity Ads Config
+  final String _gameId = "6079651";
+  bool _adStarted = false;
 
   // Server Management
-  late List<VpnServer> _servers;
-  late VpnServer _selectedServer;
-
-  final String defaultUSAConfig = '''
+  String _currentConfig = '''
 [Interface]
 Address = 10.7.0.2/24
 DNS = 1.1.1.1, 1.0.0.1
@@ -66,238 +54,208 @@ PersistentKeepalive = 25
   @override
   void initState() {
     super.initState();
-    _servers = [VpnServer("USA Default", "🇺🇸", defaultUSAConfig)];
-    _selectedServer = _servers[0];
-    _initVpn();
+    _initApp();
   }
 
-  void _initVpn() async {
+  // Inicialização Proativa para evitar lentidão no clique
+  void _initApp() async {
+    // 1. Inicializa Ads
+    UnityAds.init(
+      gameId: _gameId,
+      onComplete: () => _loadAds(),
+      onFailed: (error, message) => print('Unity Ads Init Failed: $message'),
+    );
+
+    // 2. Inicializa VPN em Background
     await _wireguard.initialize(interfaceName: 'nocix0');
     _wireguard.vpnStageSnapshot.listen((stage) {
-      if (mounted) {
-        setState(() => _stage = stage);
-        if (stage == VpnStage.connected) {
-          _startSpeedCalculation();
-        } else {
-          _stopSpeedCalculation();
-        }
-      }
+      if (mounted) setState(() => _stage = stage);
     });
   }
 
-  // FUNCIONAL: Cálculo de velocidade real em tempo real
-  void _startSpeedCalculation() {
-    _statsTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      // Nota: wireguard_flutter reporta o tráfego acumulado.
-      // Aqui você integraria com _wireguard.getStats() para calcular a variação (Delta)
-      // Como exemplo funcional de lógica:
-      setState(() {
-        _downSpeed = (15 + (DateTime.now().second % 10)).toDouble(); // Exemplo de variação real simulada por lógica
-        _upSpeed = (5 + (DateTime.now().second % 5)).toDouble();
-      });
-    });
+  void _loadAds() {
+    UnityAds.load(placementId: 'Interstitial_Android');
+    UnityAds.load(placementId: 'Rewarded_Android');
   }
 
-  void _stopSpeedCalculation() {
-    _statsTimer?.cancel();
-    setState(() {
-      _downSpeed = 0.0;
-      _upSpeed = 0.0;
-    });
+  void _showAdAndConnect() {
+    // Fluxo Profissional: Exibe anúncio se estiver pronto, senão conecta direto
+    UnityAds.showVideoAd(
+      placementId: 'Interstitial_Android',
+      onComplete: (placementId) => _connectVpn(),
+      onFailed: (placementId, error, message) => _connectVpn(),
+      onSkipped: (placementId) => _connectVpn(),
+    );
+  }
+
+  void _connectVpn() async {
+    await _wireguard.startVpn(
+      serverAddress: "51.79.117.132:53",
+      wgQuickConfig: _currentConfig,
+      providerBundleIdentifier: "com.jinoca.vpn",
+    );
   }
 
   Future<void> _importConfig() async {
-    // FILTRO: Apenas arquivos .conf
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['conf'],
     );
-
     if (result != null) {
-      File file = File(result.files.single.path!);
-      String content = await file.readAsString();
-      
-      VpnServer newServer = VpnServer("Custom Server", "🌐", content);
-      setState(() {
-        if (_servers.length > 1) _servers.removeAt(1);
-        _servers.add(newServer);
-        _selectedServer = newServer; // Auto-switch to new
-      });
-      
-      if (_stage == VpnStage.connected) _toggleVpn(); // Restart with new config
-    }
-  }
-
-  void _toggleVpn() async {
-    if (_stage == VpnStage.connected) {
-      await _wireguard.stopVpn();
-    } else {
-      await _wireguard.startVpn(
-        serverAddress: _selectedServer.name == "USA Default" ? "51.79.117.132:53" : "0.0.0.0:0",
-        wgQuickConfig: _selectedServer.config,
-        providerBundleIdentifier: "com.jinoca.vpn",
-      );
+      String content = await File(result.files.single.path!).readAsString();
+      setState(() => _currentConfig = content);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: Container(), // Remove o título ou logo do canto
+        actions: [
+          // Engrenagem Corrigida
+          IconButton(
+            icon: const Icon(Icons.settings, size: 28),
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                backgroundColor: const Color(0xFF1A1A2E),
+                builder: (context) => _buildSettingsMenu(),
+              );
+            },
+          ),
+        ],
+      ),
       body: Stack(
         children: [
-          // Background Image
           Image.asset("assets/FUNDO.png", fit: BoxFit.cover, width: double.infinity, height: double.infinity),
-          Container(color: Colors.black.withOpacity(0.7)),
-
+          Container(color: Colors.black.withOpacity(0.6)),
           SafeArea(
             child: Column(
               children: [
-                _buildHeader(),
+                const SizedBox(height: 40),
+                _buildProfessionalLogo(),
                 const SizedBox(height: 20),
-                _buildLogo(),
-                const SizedBox(height: 15),
-                _buildServerSelector(),
+                _buildServerBadge(),
                 const Spacer(),
-                _buildSpeedStats(),
-                const SizedBox(height: 40),
                 _buildConnectButton(),
-                const SizedBox(height: 20),
-                Text(
-                  _stage == VpnStage.connected ? "PROTECTED" : (_stage == VpnStage.disconnected ? "DISCONNECTED" : "CONNECTING..."),
-                  style: const TextStyle(letterSpacing: 2, fontWeight: FontWeight.w300),
-                ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 100), // Espaço para o Banner
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text("NOCIX", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 2)),
-          IconButton(
-            icon: const Icon(Icons.tune, color: Colors.white70),
-            onPressed: _importConfig,
+          // Banner Fixo na Base
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: UnityBannerAd(placementId: 'Banner_Android'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLogo() {
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white12),
-        ),
-        child: CircleAvatar(
-          radius: 45,
-          backgroundColor: Colors.white,
-          backgroundImage: const AssetImage("assets/LOGO.png"),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildServerSelector() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 50),
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<VpnServer>(
-          value: _selectedServer,
-          dropdownColor: const Color(0xFF1A1A2E),
-          isExpanded: true,
-          items: _servers.map((s) => DropdownMenuItem(
-            value: s,
-            child: Text("${s.flag}  ${s.name}", style: const TextStyle(fontSize: 14)),
-          )).toList(),
-          onChanged: (val) {
-            if (val != null) setState(() => _selectedServer = val);
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSpeedStats() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _statItem("DOWNLOAD", "${_downSpeed.toStringAsFixed(1)}", Icons.arrow_downward),
-        Container(width: 1, height: 40, color: Colors.white10),
-        _statItem("UPLOAD", "${_upSpeed.toStringAsFixed(1)}", Icons.arrow_upward),
-      ],
-    );
-  }
-
-  Widget _statItem(String label, String value, IconData icon) {
+  Widget _buildProfessionalLogo() {
     return Column(
       children: [
-        Row(
-          children: [
-            Icon(icon, size: 14, color: Colors.blueAccent),
-            const SizedBox(width: 5),
-            Text(value, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-            const Text(" Mbps", style: TextStyle(fontSize: 12, color: Colors.white38)),
-          ],
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.blueAccent.withOpacity(0.5), width: 2),
+          ),
+          child: CircleAvatar(
+            radius: 65,
+            backgroundColor: Colors.white,
+            backgroundImage: const AssetImage("assets/LOGO.png"),
+          ),
         ),
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.white38, letterSpacing: 1.5)),
+        const SizedBox(height: 10),
+        const Text("NOCIX", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 10)),
       ],
+    );
+  }
+
+  Widget _buildServerBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // BANDEIRA PROFISSIONAL (Asset em vez de Emoji)
+          Image.asset("assets/us.png", width: 24),
+          const SizedBox(width: 10),
+          const Text("USA DEFAULT", style: TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
 
   Widget _buildConnectButton() {
-    bool isConnecting = _stage != VpnStage.connected && _stage != VpnStage.disconnected;
+    bool isConnected = _stage == VpnStage.connected;
+    bool isProcessing = _stage != VpnStage.connected && _stage != VpnStage.disconnected;
+
     return GestureDetector(
-      onTap: _toggleVpn,
-      child: Stack(
-        alignment: Alignment.center,
+      onTap: isProcessing ? null : () {
+        if (isConnected) {
+          _wireguard.stopVpn();
+        } else {
+          _showAdAndConnect(); // Chama o anúncio antes de conectar
+        }
+      },
+      child: Column(
         children: [
-          // Outer Glow
           AnimatedContainer(
-            duration: const Duration(milliseconds: 500),
+            duration: const Duration(milliseconds: 300),
             width: 150, height: 150,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: _stage == VpnStage.connected ? Colors.blue.withOpacity(0.2) : Colors.red.withOpacity(0.2),
-                  blurRadius: 40, spreadRadius: 10
+                  color: isConnected ? Colors.blueAccent.withOpacity(0.4) : Colors.redAccent.withOpacity(0.4),
+                  blurRadius: 30, spreadRadius: 5
                 )
-              ]
-            ),
-          ),
-          // Main Button
-          Container(
-            width: 130, height: 130,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              ],
               gradient: LinearGradient(
-                colors: _stage == VpnStage.connected 
-                  ? [Colors.blueAccent, Colors.blue.shade900] 
-                  : [Colors.redAccent, Colors.red.shade900],
-                begin: Alignment.topLeft, end: Alignment.bottomRight
-              ),
-              border: Border.all(color: Colors.white10, width: 2),
+                colors: isConnected ? [Colors.blue, Colors.blueGrey] : [Colors.redAccent, Colors.red.shade900]
+              )
             ),
-            child: isConnecting 
-              ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-              : const Icon(Icons.power_settings_new, size: 55, color: Colors.white),
+            child: isProcessing 
+              ? const Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(color: Colors.white))
+              : const Icon(Icons.power_settings_new, size: 70, color: Colors.white),
+          ),
+          const SizedBox(height: 20),
+          Text(isConnected ? "CONNECTED" : (isProcessing ? "CONNECTING..." : "TAP TO CONNECT")),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsMenu() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text("SETTINGS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Divider(color: Colors.white24),
+          ListTile(
+            leading: const Icon(Icons.file_upload_outlined),
+            title: const Text("Import .conf Server"),
+            onTap: () {
+              Navigator.pop(context);
+              _importConfig();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text("About Nocix"),
+            onTap: () => Navigator.pop(context),
           ),
         ],
       ),
