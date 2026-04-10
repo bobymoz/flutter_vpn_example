@@ -113,8 +113,7 @@ PersistentKeepalive = 25
         serverAddress: "51.79.117.132:53",
         wgQuickConfig: _currentConfig,
         providerBundleIdentifier: "com.jinoca.vpn",
-        // A notificação de sistema é configurada aqui
-        localizedDescription: "Nocix VPN is Active",
+        // Removemos o localizedDescription daqui!
       );
     }
   }
