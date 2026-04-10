@@ -11,6 +11,7 @@ dependencies:
   wireguard_flutter: ^0.1.3
   file_picker: ^8.0.0 # Para importar servidores
   google_fonts: ^6.1.0 # Para tipografia profissional
+  intl: ^0.19.0 # Para formatação de números
 
 dev_dependencies:
   flutter_test:
