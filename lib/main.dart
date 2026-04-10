@@ -34,7 +34,6 @@ class _MainScreenState extends State<MainScreen> {
   
   // Unity Ads Config
   final String _gameId = "6079651";
-  bool _adStarted = false;
 
   // Server Management
   String _currentConfig = '''
@@ -57,16 +56,15 @@ PersistentKeepalive = 25
     _initApp();
   }
 
-  // Inicialização Proativa para evitar lentidão no clique
   void _initApp() async {
-    // 1. Inicializa Ads
+    // Inicializa Ads
     UnityAds.init(
       gameId: _gameId,
       onComplete: () => _loadAds(),
-      onFailed: (error, message) => print('Unity Ads Init Failed: $message'),
+      onFailed: (error, message) => debugPrint('Unity Ads Init Failed: $message'),
     );
 
-    // 2. Inicializa VPN em Background
+    // Inicializa VPN
     await _wireguard.initialize(interfaceName: 'nocix0');
     _wireguard.vpnStageSnapshot.listen((stage) {
       if (mounted) setState(() => _stage = stage);
@@ -79,7 +77,6 @@ PersistentKeepalive = 25
   }
 
   void _showAdAndConnect() {
-    // Fluxo Profissional: Exibe anúncio se estiver pronto, senão conecta direto
     UnityAds.showVideoAd(
       placementId: 'Interstitial_Android',
       onComplete: (placementId) => _connectVpn(),
@@ -114,9 +111,8 @@ PersistentKeepalive = 25
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: Container(), // Remove o título ou logo do canto
+        leading: Container(),
         actions: [
-          // Engrenagem Corrigida
           IconButton(
             icon: const Icon(Icons.settings, size: 28),
             onPressed: () {
@@ -131,22 +127,29 @@ PersistentKeepalive = 25
       ),
       body: Stack(
         children: [
+          // Fundo do App
           Image.asset("assets/FUNDO.png", fit: BoxFit.cover, width: double.infinity, height: double.infinity),
-          Container(color: Colors.black.withOpacity(0.6)),
+          Container(color: Colors.black.withOpacity(0.6)), // Filtro para dar contraste
+          
           SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: 40),
-                _buildProfessionalLogo(),
-                const SizedBox(height: 20),
-                _buildServerBadge(),
-                const Spacer(),
-                _buildConnectButton(),
-                const SizedBox(height: 100), // Espaço para o Banner
-              ],
+            child: SizedBox(
+              width: double.infinity, // <-- CORREÇÃO DO BUG: Força o alinhamento no centro da tela!
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 40),
+                  _buildProfessionalLogo(),
+                  const SizedBox(height: 20),
+                  _buildServerBadge(),
+                  const Spacer(),
+                  _buildConnectButton(),
+                  const SizedBox(height: 100), // Espaço para o Banner da Unity não cobrir o botão
+                ],
+              ),
             ),
           ),
-          // Banner Fixo na Base
+          
+          // Banner da Unity Fixo na Base
           Align(
             alignment: Alignment.bottomCenter,
             child: UnityBannerAd(placementId: 'Banner_Android'),
@@ -167,7 +170,7 @@ PersistentKeepalive = 25
           ),
           child: CircleAvatar(
             radius: 65,
-            backgroundColor: Colors.white,
+            backgroundColor: Colors.transparent, // <-- CORREÇÃO DO BUG: Remove o fundo branco!
             backgroundImage: const AssetImage("assets/LOGO.png"),
           ),
         ),
@@ -187,7 +190,6 @@ PersistentKeepalive = 25
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // BANDEIRA PROFISSIONAL (Asset em vez de Emoji)
           Image.asset("assets/us.png", width: 24),
           const SizedBox(width: 10),
           const Text("USA DEFAULT", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -205,7 +207,7 @@ PersistentKeepalive = 25
         if (isConnected) {
           _wireguard.stopVpn();
         } else {
-          _showAdAndConnect(); // Chama o anúncio antes de conectar
+          _showAdAndConnect(); 
         }
       },
       child: Column(
@@ -230,7 +232,10 @@ PersistentKeepalive = 25
               : const Icon(Icons.power_settings_new, size: 70, color: Colors.white),
           ),
           const SizedBox(height: 20),
-          Text(isConnected ? "CONNECTED" : (isProcessing ? "CONNECTING..." : "TAP TO CONNECT")),
+          Text(
+            isConnected ? "CONNECTED" : (isProcessing ? "CONNECTING..." : "TAP TO CONNECT"),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+          ),
         ],
       ),
     );
@@ -251,11 +256,6 @@ PersistentKeepalive = 25
               Navigator.pop(context);
               _importConfig();
             },
-          ),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text("About Nocix"),
-            onTap: () => Navigator.pop(context),
           ),
         ],
       ),
