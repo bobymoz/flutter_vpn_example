@@ -29,7 +29,6 @@ class VpnHome extends StatefulWidget {
 }
 
 class _VpnHomeState extends State<VpnHome> {
-  // AQUI ESTÁ A CORREÇÃO: "G" maiúsculo no WireGuard
   final _wireguard = WireGuardFlutter.instance;
   bool _isConnected = false;
   String _statusText = "TOCAR PARA CONECTAR";
@@ -57,24 +56,24 @@ PersistentKeepalive = 25
 
   void _initWireguard() async {
     try {
-      // O WireGuard exige um nome de interface invisível, vamos usar 'wg0'
       await _wireguard.initialize(interfaceName: 'wg0');
       
-      // Esse ouvinte vai atualizar o botão em tempo real
-      _wireguard.vpnStageSnapshot.listen((event) {
+      // AQUI ESTÁ A CORREÇÃO: Usando o objeto VpnStage corretamente
+      _wireguard.vpnStageSnapshot.listen((VpnStage event) {
         if (mounted) {
           setState(() {
-            if (event == "connected") {
+            if (event == VpnStage.connected) {
               _isConnected = true;
               _statusText = "CONECTADO E PROTEGIDO";
-            } else if (event == "disconnected") {
+            } else if (event == VpnStage.disconnected) {
               _isConnected = false;
               _statusText = "TOCAR PARA CONECTAR";
-            } else if (event == "denied") {
+            } else if (event == VpnStage.denied) {
               _isConnected = false;
               _statusText = "PERMISSÃO NEGADA";
             } else {
-              _statusText = event.toUpperCase() + "...";
+              // Pegamos o "name" do estado para poder transformar em maiúsculo
+              _statusText = event.name.toUpperCase() + "...";
             }
           });
         }
@@ -87,10 +86,8 @@ PersistentKeepalive = 25
   void _toggleVpn() async {
     try {
       if (_isConnected) {
-        // Comando nativo para desligar o motor
         await _wireguard.stopVpn();
       } else {
-        // Comando nativo para iniciar o motor
         await _wireguard.startVpn(
           serverAddress: "51.79.117.132:53",
           wgQuickConfig: wgConfig,
