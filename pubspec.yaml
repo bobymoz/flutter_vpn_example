@@ -24,9 +24,6 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/LOGO.png"
-  # AQUI CORRIGIMOS O FUNDO BRANCO:
-  adaptive_icon_background: "#0F172A" 
-  adaptive_icon_foreground: "assets/LOGO.png"
   min_sdk_android: 21
 
 flutter:
