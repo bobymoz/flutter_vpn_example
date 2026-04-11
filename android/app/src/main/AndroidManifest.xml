@@ -23,6 +23,35 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        
+        
+        <!-- NEW: OpenVPN service – required by openvpn_flutter -->
+        <service
+            android:name="de.blinkt.openvpn.core.OpenVPNService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService"/>
+            </intent-filter>
+        </service>
+
+        
+           <!-- NEW: WireGuard VPN service (already added by wireguard_flutter
+             automatically, but listed here for clarity) -->
+        <service
+            android:name="com.beeskibaps.wireguardflutter.WireGuardTunnelService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService"/>
+            </intent-filter>
+        </service>
+        
+        
+        
+        
         <meta-data android:name="flutterEmbedding" android:value="2" />
+        
     </application>
 </manifest>
