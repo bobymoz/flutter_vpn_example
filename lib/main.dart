@@ -31,8 +31,6 @@ Widget buildBackground({required Widget child, double overlay = 0.52}) {
 // ─────────────────────────────────────────────
 // WIREGUARD CONFIG
 // ─────────────────────────────────────────────
-const String kServerName    = 'United States';
-const String kServerEmoji   = '🇺🇸';
 const String kServerEndpoint = '51.79.117.132:53';
 const String kWgConfig = '''[Interface]
 Address = 10.7.0.2/24
@@ -565,9 +563,6 @@ class _MainScreenState extends State<MainScreen>
     ]);
   }
 
-  // ─────────────────────────────────────────
-  // Info card – shows server info + session time when connected
-  // ─────────────────────────────────────────
   Widget _buildInfoCard() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 400),
@@ -584,55 +579,49 @@ class _MainScreenState extends State<MainScreen>
         ),
       ),
       child: Column(children: [
-        // Server row
+        // Server row — generic, no location or protocol exposed
         Row(children: [
-          const Text(kServerEmoji, style: TextStyle(fontSize: 28)),
-          const SizedBox(width: 12),
-          Expanded(
+          Container(
+            width: 46, height: 46,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFFE8622A).withOpacity(0.15),
+              border: Border.all(
+                  color: const Color(0xFFE8622A).withOpacity(0.3)),
+            ),
+            child: const Icon(Icons.language,
+                color: Color(0xFFFF8C5A), size: 24),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(kServerName,
+                Text('Recommended Server',
                     style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15, color: Colors.white)),
-                const SizedBox(height: 2),
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8622A).withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text('WireGuard',
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFFF8C5A))),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text('UDP · Port 53',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.white38)),
-                ]),
+                SizedBox(height: 3),
+                Text('Best available location',
+                    style: TextStyle(
+                        fontSize: 11, color: Colors.white38)),
               ],
             ),
           ),
-          // Status icon
+          // Lock icon only — no text that reveals anything
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: _isConnected
-                ? const Icon(Icons.lock,
+                ? const Icon(Icons.lock_rounded,
                     key: ValueKey('locked'),
-                    color: Color(0xFF00FF9D), size: 22)
-                : const Icon(Icons.lock_open,
+                    color: Color(0xFF00FF9D), size: 24)
+                : const Icon(Icons.lock_open_rounded,
                     key: ValueKey('unlocked'),
-                    color: Colors.white38, size: 22),
+                    color: Colors.white24, size: 24),
           ),
         ]),
 
-        // Session time row – only when connected
+        // Session stats — only visible when connected
         AnimatedSize(
           duration: const Duration(milliseconds: 300),
           child: _isConnected
@@ -641,26 +630,14 @@ class _MainScreenState extends State<MainScreen>
                   Divider(color: Colors.white.withOpacity(0.08)),
                   const SizedBox(height: 10),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _infoChip(
-                        Icons.timer_outlined,
-                        'SESSION',
-                        _sessionTime,
-                        const Color(0xFF00FF9D),
-                      ),
-                      _infoChip(
-                        Icons.dns_outlined,
-                        'DNS',
-                        '1.1.1.1',
-                        const Color(0xFF7BA7FF),
-                      ),
-                      _infoChip(
-                        Icons.shuffle,
-                        'PROTOCOL',
-                        'WireGuard',
-                        const Color(0xFFFF8C5A),
-                      ),
+                      _infoChip(Icons.timer_outlined, 'SESSION',
+                          _sessionTime, const Color(0xFF00FF9D)),
+                      _infoChip(Icons.shield_outlined, 'STATUS',
+                          'Protected', const Color(0xFF7BA7FF)),
+                      _infoChip(Icons.lock_rounded, 'ENCRYPTED',
+                          'AES-256', const Color(0xFFFF8C5A)),
                     ],
                   ),
                 ])
