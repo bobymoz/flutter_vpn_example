@@ -370,6 +370,7 @@ class _MainScreenState extends State<MainScreen>
       },
       onFailed: (_, __, msg) {
         if (mounted) setState(() => _interstitialReady = false);
+        debugPrint('[Ads] Load failed: $msg');
       },
     );
   }
@@ -378,39 +379,31 @@ class _MainScreenState extends State<MainScreen>
     if (_connecting) return;
     setState(() { _connecting = true; _loadingAd = true; });
 
+    // If ad is already loaded and ready → show it now (zero wait)
     if (_interstitialReady) {
-      // Ad already loaded – show immediately
       _showInterstitial();
-    } else {
-      // SDK may still be initialising or ad still loading.
-      // Poll every 300 ms for up to 12 s total.
-      // Covers both "SDK not ready yet" (first launch) and
-      // "SDK ready but ad hasn't loaded yet" (subsequent launches).
-      _pollForAdThenConnect();
+      return;
     }
-  }
 
-  void _pollForAdThenConnect() {
+    // SDK not ready or ad not loaded yet.
+    // Wait up to 3 s. If still not ready → connect WITHOUT ad.
+    // This covers the very first launch where SDK takes time to init.
+    // The ad will be shown on the NEXT connection attempt instead.
     int waited = 0;
-    const int intervalMs = 300;
-    const int maxWaitMs = 12000; // 12 s total – enough for SDK + ad load
-
-    Timer.periodic(Duration(milliseconds: intervalMs), (t) {
-      waited += intervalMs;
+    Timer.periodic(const Duration(milliseconds: 200), (t) {
+      waited += 200;
       if (!mounted) { t.cancel(); return; }
 
-      // If SDK just became ready but we haven't triggered a load yet, do it now
-      if (_adsReady && !_interstitialReady) {
-        _loadInterstitial();
-      }
+      // Trigger load as soon as SDK becomes ready
+      if (_adsReady && !_interstitialReady) _loadInterstitial();
 
       if (_interstitialReady) {
-        // Ad is ready – show it
         t.cancel();
         _showInterstitial();
-      } else if (waited >= maxWaitMs) {
-        // Timeout: SDK or network too slow – connect without ad
+      } else if (waited >= 3000) {
+        // 3 s timeout: just connect, skip ad this one time
         t.cancel();
+        debugPrint('[Ads] Timeout waiting for ad – connecting without ad');
         _afterAd();
       }
     });
@@ -429,7 +422,14 @@ class _MainScreenState extends State<MainScreen>
     setState(() => _loadingAd = false);
     _loadInterstitial();
     await _connect();
-    // _connecting released by vpnStageSnapshot callback
+    // Safety net: if WireGuard never fires connected/disconnected
+    // within 20 s, release the lock so the button is never stuck.
+    Timer(const Duration(seconds: 20), () {
+      if (mounted && _connecting) {
+        setState(() => _connecting = false);
+        debugPrint('[VPN] Safety timeout – releasing _connecting lock');
+      }
+    });
   }
 
   // ─────────────────────────────────────────
