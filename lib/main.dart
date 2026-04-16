@@ -45,8 +45,10 @@ Endpoint = 51.79.117.132:53
 PersistentKeepalive = 25
 ''';
 
+const String kGameId = '6079651';
+
 // ─────────────────────────────────────────────
-// NATIVE CHANNEL  (notification + open URL)
+// NATIVE CHANNEL
 // ─────────────────────────────────────────────
 const _channel = MethodChannel('nocix/launcher');
 
@@ -72,7 +74,7 @@ Future<void> _openUrl(String url) async {
 }
 
 // ─────────────────────────────────────────────
-// APP
+// APP ROOT
 // ─────────────────────────────────────────────
 class NocixApp extends StatelessWidget {
   const NocixApp({super.key});
@@ -87,22 +89,29 @@ class NocixApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.black,
         fontFamily: 'Roboto',
       ),
-      home: const SplashScreen(),
+      home: const InitScreen(),
     );
   }
 }
 
 // ─────────────────────────────────────────────
-// SPLASH SCREEN
+// INIT SCREEN
+// This is the FIRST screen. It:
+//   1. Shows animated logo + "Loading servers..."
+//   2. Initialises Unity Ads SDK in background
+//   3. Pre-loads the interstitial ad
+//   4. Once ad is ready (or max 15 s timeout), shows
+//      "Servers loaded successfully!" for 1.5 s
+//   5. Then navigates to MainScreen — ad is guaranteed ready
 // ─────────────────────────────────────────────
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+class InitScreen extends StatefulWidget {
+  const InitScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  State<InitScreen> createState() => _InitScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
+class _InitScreenState extends State<InitScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
   late Animation<double> _logoScale;
@@ -110,12 +119,24 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _textOpacity;
   late Animation<double> _ringScale;
 
+  // Loading state
+  String _statusText = 'Initializing...';
+  bool _success = false;
+
+  // Ads state
+  bool _adsReady = false;
+  bool _interstitialReady = false;
+
+  // Safety: don't navigate twice
+  bool _navigated = false;
+
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1800));
 
+    // Animations
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1600));
     _logoScale = Tween<double>(begin: 0.5, end: 1.0).animate(CurvedAnimation(
         parent: _ctrl,
         curve: const Interval(0.0, 0.6, curve: Curves.easeOutBack)));
@@ -127,17 +148,78 @@ class _SplashScreenState extends State<SplashScreen>
         curve: const Interval(0.1, 0.7, curve: Curves.easeOutCubic)));
     _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
         parent: _ctrl,
-        curve: const Interval(0.55, 0.85, curve: Curves.easeIn)));
+        curve: const Interval(0.5, 0.85, curve: Curves.easeIn)));
 
     _ctrl.forward();
-    Future.delayed(const Duration(milliseconds: 2700), () {
+
+    // Start SDK init after a short delay so the animation is visible
+    Future.delayed(const Duration(milliseconds: 600), _startInit);
+
+    // Absolute hard timeout: after 15 s always proceed no matter what
+    Timer(const Duration(seconds: 15), () => _proceed(timedOut: true));
+  }
+
+  void _startInit() {
+    if (mounted) setState(() => _statusText = 'Loading servers...');
+
+    UnityAds.init(
+      gameId: kGameId,
+      testMode: false,
+      onComplete: () {
+        debugPrint('[Init] Unity Ads SDK ready');
+        _adsReady = true;
+        if (mounted) setState(() => _statusText = 'Loading ad...');
+        _loadInterstitial();
+      },
+      onFailed: (error, msg) {
+        debugPrint('[Init] Unity Ads failed: $msg');
+        // SDK failed — proceed anyway so the user isn't stuck
+        _proceed(timedOut: false);
+      },
+    );
+  }
+
+  void _loadInterstitial() {
+    UnityAds.load(
+      placementId: 'Interstitial_Android',
+      onComplete: (_) {
+        debugPrint('[Init] Interstitial ready');
+        _interstitialReady = true;
+        _proceed(timedOut: false);
+      },
+      onFailed: (_, error, msg) {
+        debugPrint('[Init] Interstitial load failed: $msg');
+        // Ad load failed — proceed so user isn't stuck
+        _proceed(timedOut: false);
+      },
+    );
+  }
+
+  void _proceed({required bool timedOut}) {
+    if (_navigated || !mounted) return;
+    _navigated = true;
+
+    // Show success message briefly, then navigate
+    setState(() {
+      _success = true;
+      _statusText = _interstitialReady
+          ? 'Servers loaded successfully!'
+          : 'Ready to connect!';
+    });
+
+    Future.delayed(const Duration(milliseconds: 1800), () {
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 700),
-        pageBuilder: (_, __, ___) => const MainScreen(),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ));
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 600),
+          pageBuilder: (_, __, ___) => MainScreen(
+            adsReady: _adsReady,
+            interstitialReady: _interstitialReady,
+          ),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+        ),
+      );
     });
   }
 
@@ -158,6 +240,7 @@ class _SplashScreenState extends State<SplashScreen>
             builder: (_, __) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Logo + rings
                 SizedBox(
                   width: 210, height: 210,
                   child: Stack(alignment: Alignment.center, children: [
@@ -222,6 +305,7 @@ class _SplashScreenState extends State<SplashScreen>
                   ]),
                 ),
                 const SizedBox(height: 28),
+                // Brand name
                 Opacity(
                   opacity: _textOpacity.value,
                   child: Column(children: [
@@ -241,18 +325,56 @@ class _SplashScreenState extends State<SplashScreen>
                             color: Colors.white54)),
                   ]),
                 ),
-                const SizedBox(height: 56),
+                const SizedBox(height: 48),
+                // Status area
                 Opacity(
                   opacity: _textOpacity.value,
-                  child: SizedBox(
-                    width: 120,
-                    child: LinearProgressIndicator(
-                      backgroundColor: Colors.white12,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                          Color(0xFFE8622A)),
-                      borderRadius: BorderRadius.circular(4),
+                  child: Column(children: [
+                    // Status text with icon
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 400),
+                      child: Row(
+                        key: ValueKey(_statusText),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_success)
+                            const Icon(Icons.check_circle_rounded,
+                                color: Color(0xFF00FF9D), size: 16)
+                          else
+                            const SizedBox(
+                              width: 14, height: 14,
+                              child: CircularProgressIndicator(
+                                color: Color(0xFFFF8C5A),
+                                strokeWidth: 2,
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          Text(_statusText,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: _success
+                                      ? const Color(0xFF00FF9D)
+                                      : Colors.white54,
+                                  letterSpacing: 0.5)),
+                        ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 20),
+                    // Progress bar — disappears on success
+                    AnimatedOpacity(
+                      opacity: _success ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 400),
+                      child: SizedBox(
+                        width: 140,
+                        child: LinearProgressIndicator(
+                          backgroundColor: Colors.white12,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                              Color(0xFFE8622A)),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+                  ]),
                 ),
               ],
             ),
@@ -265,9 +387,18 @@ class _SplashScreenState extends State<SplashScreen>
 
 // ─────────────────────────────────────────────
 // MAIN SCREEN
+// Receives adsReady + interstitialReady from InitScreen
+// so it knows the exact state of the ad on first launch.
 // ─────────────────────────────────────────────
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  final bool adsReady;
+  final bool interstitialReady;
+
+  const MainScreen({
+    super.key,
+    required this.adsReady,
+    required this.interstitialReady,
+  });
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -280,10 +411,9 @@ class _MainScreenState extends State<MainScreen>
   StreamSubscription? _stageSub;
 
   // ── Ads ───────────────────────────────────
-  static const String _gameId = '6079651';
-  bool _adsReady = false;
-  bool _interstitialReady = false;
-  bool _connecting = false; // gates the entire connect flow
+  late bool _adsReady;
+  late bool _interstitialReady;
+  bool _connecting = false;
   bool _loadingAd = false;
 
   // ── Session timer ──────────────────────────
@@ -298,6 +428,11 @@ class _MainScreenState extends State<MainScreen>
   @override
   void initState() {
     super.initState();
+
+    // Use state passed from InitScreen — already warm
+    _adsReady = widget.adsReady;
+    _interstitialReady = widget.interstitialReady;
+
     _pulseCtrl =
         AnimationController(vsync: this, duration: const Duration(seconds: 2))
           ..repeat(reverse: true);
@@ -305,7 +440,9 @@ class _MainScreenState extends State<MainScreen>
         CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
 
     _initVpn();
-    _initAds();
+
+    // If ad wasn't ready yet when InitScreen timed out, keep trying quietly
+    if (_adsReady && !_interstitialReady) _loadInterstitial();
   }
 
   // ─────────────────────────────────────────
@@ -317,7 +454,6 @@ class _MainScreenState extends State<MainScreen>
       if (!mounted) return;
       setState(() {
         _stage = stage;
-        // Release _connecting once WG reaches a terminal state
         if (stage == VpnStage.connected || stage == VpnStage.disconnected) {
           _connecting = false;
         }
@@ -342,25 +478,11 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  Future<void> _disconnect() async {
-    await _wireguard.stopVpn();
-  }
+  Future<void> _disconnect() async => _wireguard.stopVpn();
 
   // ─────────────────────────────────────────
   // ADS
   // ─────────────────────────────────────────
-  void _initAds() {
-    UnityAds.init(
-      gameId: _gameId,
-      testMode: false,
-      onComplete: () {
-        if (mounted) setState(() => _adsReady = true);
-        _loadInterstitial();
-      },
-      onFailed: (_, msg) => debugPrint('[Ads] Init failed: $msg'),
-    );
-  }
-
   void _loadInterstitial() {
     if (!_adsReady) return;
     UnityAds.load(
@@ -375,38 +497,20 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
+  // Because InitScreen already waited for the ad, this flow is simple:
+  // ad is ready → show immediately. Not ready → connect without ad (rare).
   void _onConnectTapped() {
     if (_connecting) return;
     setState(() { _connecting = true; _loadingAd = true; });
 
-    // If ad is already loaded and ready → show it now (zero wait)
     if (_interstitialReady) {
       _showInterstitial();
-      return;
+    } else {
+      // Shouldn't happen often since InitScreen pre-loaded the ad,
+      // but handle gracefully just in case.
+      debugPrint('[Ads] Ad not ready at connect time – connecting directly');
+      _afterAd();
     }
-
-    // SDK not ready or ad not loaded yet.
-    // Wait up to 3 s. If still not ready → connect WITHOUT ad.
-    // This covers the very first launch where SDK takes time to init.
-    // The ad will be shown on the NEXT connection attempt instead.
-    int waited = 0;
-    Timer.periodic(const Duration(milliseconds: 200), (t) {
-      waited += 200;
-      if (!mounted) { t.cancel(); return; }
-
-      // Trigger load as soon as SDK becomes ready
-      if (_adsReady && !_interstitialReady) _loadInterstitial();
-
-      if (_interstitialReady) {
-        t.cancel();
-        _showInterstitial();
-      } else if (waited >= 3000) {
-        // 3 s timeout: just connect, skip ad this one time
-        t.cancel();
-        debugPrint('[Ads] Timeout waiting for ad – connecting without ad');
-        _afterAd();
-      }
-    });
   }
 
   void _showInterstitial() {
@@ -419,30 +523,25 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Future<void> _afterAd() async {
-    setState(() => _loadingAd = false);
+    setState(() {
+      _loadingAd = false;
+      _interstitialReady = false; // consumed
+    });
+    // Pre-load next ad immediately in background
     _loadInterstitial();
     await _connect();
-    // Safety net: if WireGuard never fires connected/disconnected
-    // within 20 s, release the lock so the button is never stuck.
+    // Safety: release lock after 20 s if WG never fires
     Timer(const Duration(seconds: 20), () {
-      if (mounted && _connecting) {
-        setState(() => _connecting = false);
-        debugPrint('[VPN] Safety timeout – releasing _connecting lock');
-      }
+      if (mounted && _connecting) setState(() => _connecting = false);
     });
   }
 
-  // ─────────────────────────────────────────
-  // COMPUTED STATE
   // ─────────────────────────────────────────
   bool get _isConnected => _stage == VpnStage.connected;
   bool get _isVpnBusy =>
       _stage != VpnStage.connected && _stage != VpnStage.disconnected;
   bool get _isBusy => _connecting || _isVpnBusy;
 
-  // ─────────────────────────────────────────
-  // TIMER
-  // ─────────────────────────────────────────
   void _startClock() {
     _clockTimer?.cancel();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -476,41 +575,36 @@ class _MainScreenState extends State<MainScreen>
       body: buildBackground(
         overlay: 0.50,
         child: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 16),
-                      _buildLogo(),
-                      const SizedBox(height: 28),
-                      _buildInfoCard(),
-                      const Spacer(),
-                      _buildConnectButton(),
-                      const SizedBox(height: 20),
-                      _buildFeatureRow(),
-                      const SizedBox(height: 24),
-                    ],
-                  ),
-                ),
+          child: Column(children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(children: [
+                  const SizedBox(height: 16),
+                  _buildLogo(),
+                  const SizedBox(height: 28),
+                  _buildInfoCard(),
+                  const Spacer(),
+                  _buildConnectButton(),
+                  const SizedBox(height: 20),
+                  _buildFeatureRow(),
+                  const SizedBox(height: 24),
+                ]),
               ),
-              UnityBannerAd(
-                placementId: 'Banner_Android',
-                onLoad: (_) => debugPrint('[Ads] Banner loaded'),
-                onClick: (_) {},
-                onFailed: (_, __, msg) =>
-                    debugPrint('[Ads] Banner failed: $msg'),
-              ),
-            ],
-          ),
+            ),
+            UnityBannerAd(
+              placementId: 'Banner_Android',
+              onLoad: (_) => debugPrint('[Ads] Banner loaded'),
+              onClick: (_) {},
+              onFailed: (_, __, msg) =>
+                  debugPrint('[Ads] Banner failed: $msg'),
+            ),
+          ]),
         ),
       ),
     );
   }
 
-  // ─────────────────────────────────────────
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       backgroundColor: Colors.transparent,
@@ -547,7 +641,6 @@ class _MainScreenState extends State<MainScreen>
     return 'NOT CONNECTED';
   }
 
-  // ─────────────────────────────────────────
   Widget _buildLogo() {
     return Column(children: [
       Container(
@@ -600,7 +693,6 @@ class _MainScreenState extends State<MainScreen>
         ),
       ),
       child: Column(children: [
-        // Server row — generic, no location or protocol exposed
         Row(children: [
           Container(
             width: 46, height: 46,
@@ -624,12 +716,10 @@ class _MainScreenState extends State<MainScreen>
                         fontSize: 15, color: Colors.white)),
                 SizedBox(height: 3),
                 Text('Best available location',
-                    style: TextStyle(
-                        fontSize: 11, color: Colors.white38)),
+                    style: TextStyle(fontSize: 11, color: Colors.white38)),
               ],
             ),
           ),
-          // Lock icon only — no text that reveals anything
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: _isConnected
@@ -641,8 +731,6 @@ class _MainScreenState extends State<MainScreen>
                     color: Colors.white24, size: 24),
           ),
         ]),
-
-        // Session stats — only visible when connected
         AnimatedSize(
           duration: const Duration(milliseconds: 300),
           child: _isConnected
@@ -668,8 +756,7 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  Widget _infoChip(
-      IconData icon, String label, String value, Color color) {
+  Widget _infoChip(IconData icon, String label, String value, Color color) {
     return Column(children: [
       Icon(icon, color: color, size: 16),
       const SizedBox(height: 4),
@@ -683,7 +770,6 @@ class _MainScreenState extends State<MainScreen>
     ]);
   }
 
-  // ─────────────────────────────────────────
   Widget _buildConnectButton() {
     String label;
     if (_loadingAd) label = 'LOADING AD...';
@@ -750,9 +836,6 @@ class _MainScreenState extends State<MainScreen>
     ]);
   }
 
-  // ─────────────────────────────────────────
-  // Feature pills at the bottom – fills space & communicates value
-  // ─────────────────────────────────────────
   Widget _buildFeatureRow() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -783,9 +866,6 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  // ─────────────────────────────────────────
-  // SETTINGS MENU
-  // ─────────────────────────────────────────
   void _showSettingsMenu() {
     showModalBottomSheet(
       context: context,
@@ -841,9 +921,6 @@ class _MainScreenState extends State<MainScreen>
       allowedExtensions: ['conf'],
     );
     if (result == null) return;
-    // Custom config imported – the app will use it for the next connection.
-    // For simplicity we just show a snackbar; extending to hot-swap the
-    // config at runtime is possible but out of scope here.
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
