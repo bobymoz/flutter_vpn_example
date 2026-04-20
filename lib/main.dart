@@ -439,7 +439,7 @@ class _MainScreenState extends State<MainScreen>
     _pulseAnim = Tween<double>(begin: 1.0, end: 1.08).animate(
         CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
 
-    _initVpn();
+    _initFuture = _initVpn();
 
     // If ad wasn't ready yet when InitScreen timed out, keep trying quietly
     if (_adsReady && !_interstitialReady) _loadInterstitial();
@@ -448,8 +448,14 @@ class _MainScreenState extends State<MainScreen>
   // ─────────────────────────────────────────
   // VPN
   // ─────────────────────────────────────────
-  void _initVpn() async {
+
+  // Stored so _connect() can await it before calling startVpn
+  late Future<void> _initFuture;
+
+  Future<void> _initVpn() async {
     await _wireguard.initialize(interfaceName: 'nocix0');
+    // Cancel any previous subscription to avoid double-listening
+    await _stageSub?.cancel();
     _stageSub = _wireguard.vpnStageSnapshot.listen((stage) {
       if (!mounted) return;
       setState(() {
@@ -471,6 +477,9 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Future<void> _connect() async {
+    // Always wait for initialize() to fully complete before connecting.
+    // On first launch this is what was causing "CONNECTING..." forever.
+    await _initFuture;
     await _wireguard.startVpn(
       serverAddress: kServerEndpoint,
       wgQuickConfig: kWgConfig,
