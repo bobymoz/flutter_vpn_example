@@ -29,7 +29,7 @@ Widget buildBackground({required Widget child, double overlay = 0.52}) {
 }
 
 // ─────────────────────────────────────────────
-// WIREGUARD CONFIG
+// CONFIG
 // ─────────────────────────────────────────────
 const String kServerEndpoint = '51.79.117.132:53';
 const String kWgConfig = '''[Interface]
@@ -44,7 +44,6 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = 51.79.117.132:53
 PersistentKeepalive = 25
 ''';
-
 const String kGameId = '6079651';
 
 // ─────────────────────────────────────────────
@@ -62,15 +61,29 @@ Future<void> _showVpnNotification() async {
 }
 
 Future<void> _cancelVpnNotification() async {
-  try {
-    await _channel.invokeMethod('cancelNotification');
-  } catch (_) {}
+  try { await _channel.invokeMethod('cancelNotification'); } catch (_) {}
 }
 
 Future<void> _openUrl(String url) async {
+  try { await _channel.invokeMethod('openUrl', {'url': url}); } catch (_) {}
+}
+
+/// Returns true if this is the very first launch (stored in native SharedPrefs)
+Future<bool> _isFirstLaunch() async {
   try {
-    await _channel.invokeMethod('openUrl', {'url': url});
-  } catch (_) {}
+    final result = await _channel.invokeMethod<bool>('isFirstLaunch');
+    return result ?? true;
+  } catch (_) { return false; }
+}
+
+/// Marks first launch as done
+Future<void> _markLaunched() async {
+  try { await _channel.invokeMethod('markLaunched'); } catch (_) {}
+}
+
+/// Closes the app process
+Future<void> _restartApp() async {
+  try { await _channel.invokeMethod('restartApp'); } catch (_) {}
 }
 
 // ─────────────────────────────────────────────
@@ -96,13 +109,9 @@ class NocixApp extends StatelessWidget {
 
 // ─────────────────────────────────────────────
 // INIT SCREEN
-// This is the FIRST screen. It:
-//   1. Shows animated logo + "Loading servers..."
-//   2. Initialises Unity Ads SDK in background
-//   3. Pre-loads the interstitial ad
-//   4. Once ad is ready (or max 15 s timeout), shows
-//      "Servers loaded successfully!" for 1.5 s
-//   5. Then navigates to MainScreen — ad is guaranteed ready
+// First launch  → loads ads → shows restart popup → user taps
+//                 "Restart Now" → app closes → user reopens → works
+// Second launch → loads ads → shows success → goes to MainScreen
 // ─────────────────────────────────────────────
 class InitScreen extends StatefulWidget {
   const InitScreen({super.key});
@@ -119,22 +128,16 @@ class _InitScreenState extends State<InitScreen>
   late Animation<double> _textOpacity;
   late Animation<double> _ringScale;
 
-  // Loading state
   String _statusText = 'Initializing...';
   bool _success = false;
-
-  // Ads state
   bool _adsReady = false;
   bool _interstitialReady = false;
-
-  // Safety: don't navigate twice
   bool _navigated = false;
+  bool _firstLaunch = false;
 
   @override
   void initState() {
     super.initState();
-
-    // Animations
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1600));
     _logoScale = Tween<double>(begin: 0.5, end: 1.0).animate(CurvedAnimation(
@@ -151,76 +154,230 @@ class _InitScreenState extends State<InitScreen>
         curve: const Interval(0.5, 0.85, curve: Curves.easeIn)));
 
     _ctrl.forward();
-
-    // Start SDK init after a short delay so the animation is visible
-    Future.delayed(const Duration(milliseconds: 600), _startInit);
-
-    // Absolute hard timeout: after 15 s always proceed no matter what
-    Timer(const Duration(seconds: 15), () => _proceed(timedOut: true));
+    Future.delayed(const Duration(milliseconds: 700), _startInit);
+    // Hard timeout – never leave user stuck
+    Timer(const Duration(seconds: 20), () => _proceed());
   }
 
-  void _startInit() {
+  void _startInit() async {
+    _firstLaunch = await _isFirstLaunch();
     if (mounted) setState(() => _statusText = 'Loading servers...');
 
     UnityAds.init(
       gameId: kGameId,
       testMode: false,
       onComplete: () {
-        debugPrint('[Init] Unity Ads SDK ready');
         _adsReady = true;
-        if (mounted) setState(() => _statusText = 'Loading ad...');
-        _loadInterstitial();
+        if (mounted) setState(() => _statusText = 'Almost ready...');
+        _loadAd();
       },
-      onFailed: (error, msg) {
-        debugPrint('[Init] Unity Ads failed: $msg');
-        // SDK failed — proceed anyway so the user isn't stuck
-        _proceed(timedOut: false);
+      onFailed: (_, msg) {
+        debugPrint('[Init] Ads failed: $msg');
+        _proceed();
       },
     );
   }
 
-  void _loadInterstitial() {
+  void _loadAd() {
     UnityAds.load(
       placementId: 'Interstitial_Android',
       onComplete: (_) {
-        debugPrint('[Init] Interstitial ready');
         _interstitialReady = true;
-        _proceed(timedOut: false);
+        _proceed();
       },
-      onFailed: (_, error, msg) {
-        debugPrint('[Init] Interstitial load failed: $msg');
-        // Ad load failed — proceed so user isn't stuck
-        _proceed(timedOut: false);
+      onFailed: (_, __, msg) {
+        debugPrint('[Init] Ad load failed: $msg');
+        _proceed();
       },
     );
   }
 
-  void _proceed({required bool timedOut}) {
+  void _proceed() {
     if (_navigated || !mounted) return;
     _navigated = true;
 
-    // Show success message briefly, then navigate
     setState(() {
       _success = true;
-      _statusText = _interstitialReady
-          ? 'Servers loaded successfully!'
-          : 'Ready to connect!';
+      _statusText = 'Everything is ready!';
     });
 
-    Future.delayed(const Duration(milliseconds: 1800), () {
+    Future.delayed(const Duration(milliseconds: 1400), () {
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 600),
-          pageBuilder: (_, __, ___) => MainScreen(
-            adsReady: _adsReady,
-            interstitialReady: _interstitialReady,
-          ),
-          transitionsBuilder: (_, anim, __, child) =>
-              FadeTransition(opacity: anim, child: child),
-        ),
-      );
+      if (_firstLaunch) {
+        // First launch: show the restart popup
+        _showRestartDialog();
+      } else {
+        // Normal launch: go straight to main screen
+        _goToMain();
+      }
     });
+  }
+
+  void _goToMain() {
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 600),
+        pageBuilder: (_, __, ___) => MainScreen(
+          adsReady: _adsReady,
+          interstitialReady: _interstitialReady,
+        ),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ),
+    );
+  }
+
+  // ── Beautiful restart dialog ──────────────
+  void _showRestartDialog() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.75),
+      transitionDuration: const Duration(milliseconds: 400),
+      transitionBuilder: (_, anim, __, child) => ScaleTransition(
+        scale: CurvedAnimation(parent: anim, curve: Curves.easeOutBack),
+        child: FadeTransition(opacity: anim, child: child),
+      ),
+      pageBuilder: (_, __, ___) => Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: const Color(0xFF141420),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                  color: const Color(0xFFFF8C5A).withOpacity(0.3), width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFE8622A).withOpacity(0.25),
+                  blurRadius: 40,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Animated shield icon
+                Container(
+                  width: 72, height: 72,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFE8622A), Color(0xFFFF8C5A)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFE8622A).withOpacity(0.4),
+                        blurRadius: 20, spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.rocket_launch_rounded,
+                      color: Colors.white, size: 34),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'You\'re all set! 🎉',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'NOCIX VPN is ready to protect you.\nTap the button below and reopen the app to start connecting securely.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.65),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Cute tip
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00C853).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: const Color(0xFF00C853).withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.tips_and_updates_rounded,
+                          color: Color(0xFF00FF9D), size: 14),
+                      const SizedBox(width: 6),
+                      Text(
+                        'This only happens once!',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: const Color(0xFF00FF9D).withOpacity(0.9),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Restart button
+                SizedBox(
+                  width: double.infinity,
+                  child: GestureDetector(
+                    onTap: () async {
+                      await _markLaunched();
+                      await _restartApp();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFE8622A), Color(0xFFFF8C5A)],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFE8622A).withOpacity(0.4),
+                            blurRadius: 16, spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.refresh_rounded,
+                              color: Colors.white, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Restart Now',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -240,7 +397,6 @@ class _InitScreenState extends State<InitScreen>
             builder: (_, __) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Logo + rings
                 SizedBox(
                   width: 210, height: 210,
                   child: Stack(alignment: Alignment.center, children: [
@@ -305,7 +461,6 @@ class _InitScreenState extends State<InitScreen>
                   ]),
                 ),
                 const SizedBox(height: 28),
-                // Brand name
                 Opacity(
                   opacity: _textOpacity.value,
                   child: Column(children: [
@@ -326,11 +481,9 @@ class _InitScreenState extends State<InitScreen>
                   ]),
                 ),
                 const SizedBox(height: 48),
-                // Status area
                 Opacity(
                   opacity: _textOpacity.value,
                   child: Column(children: [
-                    // Status text with icon
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 400),
                       child: Row(
@@ -344,9 +497,7 @@ class _InitScreenState extends State<InitScreen>
                             const SizedBox(
                               width: 14, height: 14,
                               child: CircularProgressIndicator(
-                                color: Color(0xFFFF8C5A),
-                                strokeWidth: 2,
-                              ),
+                                  color: Color(0xFFFF8C5A), strokeWidth: 2),
                             ),
                           const SizedBox(width: 8),
                           Text(_statusText,
@@ -360,7 +511,6 @@ class _InitScreenState extends State<InitScreen>
                       ),
                     ),
                     const SizedBox(height: 20),
-                    // Progress bar — disappears on success
                     AnimatedOpacity(
                       opacity: _success ? 0.0 : 1.0,
                       duration: const Duration(milliseconds: 400),
@@ -386,14 +536,180 @@ class _InitScreenState extends State<InitScreen>
 }
 
 // ─────────────────────────────────────────────
+// VPN PERMISSION SCREEN  (shown before Android dialog)
+// ─────────────────────────────────────────────
+class VpnPermissionScreen extends StatelessWidget {
+  final VoidCallback onAllow;
+  const VpnPermissionScreen({super.key, required this.onAllow});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: buildBackground(
+        overlay: 0.55,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              children: [
+                const Spacer(),
+                // Shield icon
+                Container(
+                  width: 88, height: 88,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFE8622A), Color(0xFFFF8C5A)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFE8622A).withOpacity(0.45),
+                        blurRadius: 30, spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.shield_rounded,
+                      color: Colors.white, size: 44),
+                ),
+                const SizedBox(height: 28),
+                const Text(
+                  'Allow VPN Access',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'NOCIX needs permission to create a VPN connection on your device. This keeps your data safe and your browsing private.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.white.withOpacity(0.65),
+                    height: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                // Feature list
+                _permissionFeature(
+                  Icons.lock_rounded,
+                  'End-to-end encrypted',
+                  'All your traffic is secured with AES-256',
+                ),
+                const SizedBox(height: 14),
+                _permissionFeature(
+                  Icons.visibility_off_rounded,
+                  'No logs, ever',
+                  'We never store or sell your data',
+                ),
+                const SizedBox(height: 14),
+                _permissionFeature(
+                  Icons.flash_on_rounded,
+                  'Lightning fast',
+                  'WireGuard protocol for max speed',
+                ),
+                const Spacer(),
+                // Allow button
+                SizedBox(
+                  width: double.infinity,
+                  child: GestureDetector(
+                    onTap: onAllow,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFE8622A), Color(0xFFFF8C5A)],
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFE8622A).withOpacity(0.45),
+                            blurRadius: 20, spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.security_rounded,
+                              color: Colors.white, size: 22),
+                          SizedBox(width: 10),
+                          Text(
+                            'Allow & Protect Me',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(
+                    'Not now',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.4), fontSize: 14),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _permissionFeature(IconData icon, String title, String sub) {
+    return Row(
+      children: [
+        Container(
+          width: 42, height: 42,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFFE8622A).withOpacity(0.12),
+            border: Border.all(
+                color: const Color(0xFFE8622A).withOpacity(0.25)),
+          ),
+          child: Icon(icon, color: const Color(0xFFFF8C5A), size: 20),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14, color: Colors.white)),
+              Text(sub,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withOpacity(0.45))),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
 // MAIN SCREEN
-// Receives adsReady + interstitialReady from InitScreen
-// so it knows the exact state of the ad on first launch.
 // ─────────────────────────────────────────────
 class MainScreen extends StatefulWidget {
   final bool adsReady;
   final bool interstitialReady;
-
   const MainScreen({
     super.key,
     required this.adsReady,
@@ -410,26 +726,23 @@ class _MainScreenState extends State<MainScreen>
   VpnStage _stage = VpnStage.disconnected;
   StreamSubscription? _stageSub;
 
-  // ── Ads ───────────────────────────────────
   late bool _adsReady;
   late bool _interstitialReady;
   bool _connecting = false;
   bool _loadingAd = false;
+  bool _permissionShown = false;
 
-  // ── Session timer ──────────────────────────
   String _sessionTime = '00:00:00';
   DateTime? _connectedAt;
   Timer? _clockTimer;
 
-  // ── Pulse animation ────────────────────────
+  late Future<void> _initFuture;
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
 
   @override
   void initState() {
     super.initState();
-
-    // Use state passed from InitScreen — already warm
     _adsReady = widget.adsReady;
     _interstitialReady = widget.interstitialReady;
 
@@ -440,21 +753,14 @@ class _MainScreenState extends State<MainScreen>
         CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
 
     _initFuture = _initVpn();
-
-    // If ad wasn't ready yet when InitScreen timed out, keep trying quietly
     if (_adsReady && !_interstitialReady) _loadInterstitial();
   }
 
   // ─────────────────────────────────────────
   // VPN
   // ─────────────────────────────────────────
-
-  // Stored so _connect() can await it before calling startVpn
-  late Future<void> _initFuture;
-
   Future<void> _initVpn() async {
     await _wireguard.initialize(interfaceName: 'nocix0');
-    // Cancel any previous subscription to avoid double-listening
     await _stageSub?.cancel();
     _stageSub = _wireguard.vpnStageSnapshot.listen((stage) {
       if (!mounted) return;
@@ -477,14 +783,16 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Future<void> _connect() async {
-    // Always wait for initialize() to fully complete before connecting.
-    // On first launch this is what was causing "CONNECTING..." forever.
-    await _initFuture;
+    await _initFuture; // always wait for initialize to finish
     await _wireguard.startVpn(
       serverAddress: kServerEndpoint,
       wgQuickConfig: kWgConfig,
       providerBundleIdentifier: 'com.jinoca.vpn',
     );
+    // Safety: release lock after 25 s if WireGuard never fires
+    Timer(const Duration(seconds: 25), () {
+      if (mounted && _connecting) setState(() => _connecting = false);
+    });
   }
 
   Future<void> _disconnect() async => _wireguard.stopVpn();
@@ -501,23 +809,49 @@ class _MainScreenState extends State<MainScreen>
       },
       onFailed: (_, __, msg) {
         if (mounted) setState(() => _interstitialReady = false);
-        debugPrint('[Ads] Load failed: $msg');
       },
     );
   }
 
-  // Because InitScreen already waited for the ad, this flow is simple:
-  // ad is ready → show immediately. Not ready → connect without ad (rare).
+  // ─────────────────────────────────────────
+  // CONNECT FLOW
+  // Shows our custom permission screen first,
+  // then shows ad, then connects.
+  // ─────────────────────────────────────────
   void _onConnectTapped() {
     if (_connecting) return;
-    setState(() { _connecting = true; _loadingAd = true; });
+    if (!_permissionShown) {
+      // Show our beautiful permission screen before anything else
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          opaque: false,
+          pageBuilder: (_, __, ___) => VpnPermissionScreen(
+            onAllow: () {
+              Navigator.of(context).pop();
+              _permissionShown = true;
+              _startAdFlow();
+            },
+          ),
+          transitionsBuilder: (_, anim, __, child) => SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+            child: child,
+          ),
+        ),
+      );
+    } else {
+      _startAdFlow();
+    }
+  }
 
+  void _startAdFlow() {
+    setState(() { _connecting = true; _loadingAd = true; });
     if (_interstitialReady) {
       _showInterstitial();
     } else {
-      // Shouldn't happen often since InitScreen pre-loaded the ad,
-      // but handle gracefully just in case.
-      debugPrint('[Ads] Ad not ready at connect time – connecting directly');
+      debugPrint('[Ads] Ad not ready – connecting directly');
       _afterAd();
     }
   }
@@ -532,17 +866,9 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Future<void> _afterAd() async {
-    setState(() {
-      _loadingAd = false;
-      _interstitialReady = false; // consumed
-    });
-    // Pre-load next ad immediately in background
+    setState(() { _loadingAd = false; _interstitialReady = false; });
     _loadInterstitial();
     await _connect();
-    // Safety: release lock after 20 s if WG never fires
-    Timer(const Duration(seconds: 20), () {
-      if (mounted && _connecting) setState(() => _connecting = false);
-    });
   }
 
   // ─────────────────────────────────────────
@@ -603,10 +929,9 @@ class _MainScreenState extends State<MainScreen>
             ),
             UnityBannerAd(
               placementId: 'Banner_Android',
-              onLoad: (_) => debugPrint('[Ads] Banner loaded'),
+              onLoad: (_) {},
               onClick: (_) {},
-              onFailed: (_, __, msg) =>
-                  debugPrint('[Ads] Banner failed: $msg'),
+              onFailed: (_, __, ___) {},
             ),
           ]),
         ),
@@ -616,8 +941,7 @@ class _MainScreenState extends State<MainScreen>
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
+      backgroundColor: Colors.transparent, elevation: 0,
       title: Row(mainAxisSize: MainAxisSize.min, children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 400),
@@ -660,8 +984,7 @@ class _MainScreenState extends State<MainScreen>
               colors: [Color(0xFFE8622A), Color(0xFFFF8C5A)]),
         ),
         child: CircleAvatar(
-          radius: 50,
-          backgroundColor: Colors.black54,
+          radius: 50, backgroundColor: Colors.black54,
           child: ClipOval(
             child: Image.asset('assets/LOGO.png',
                 width: 92, height: 92, fit: BoxFit.cover,
@@ -676,13 +999,12 @@ class _MainScreenState extends State<MainScreen>
                 colors: [Color(0xFFFF8C5A), Color(0xFFFFD580)])
             .createShader(b),
         child: const Text('NOCIX',
-            style: TextStyle(
-                fontSize: 28, fontWeight: FontWeight.w900,
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900,
                 letterSpacing: 12, color: Colors.white)),
       ),
       const Text('SECURE VPN',
-          style: TextStyle(
-              fontSize: 10, letterSpacing: 4, color: Colors.white38)),
+          style: TextStyle(fontSize: 10, letterSpacing: 4,
+              color: Colors.white38)),
     ]);
   }
 
@@ -716,18 +1038,15 @@ class _MainScreenState extends State<MainScreen>
           ),
           const SizedBox(width: 14),
           const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Recommended Server',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
+                    style: TextStyle(fontWeight: FontWeight.bold,
                         fontSize: 15, color: Colors.white)),
                 SizedBox(height: 3),
                 Text('Best available location',
                     style: TextStyle(fontSize: 11, color: Colors.white38)),
-              ],
-            ),
+              ]),
           ),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
@@ -770,12 +1089,12 @@ class _MainScreenState extends State<MainScreen>
       Icon(icon, color: color, size: 16),
       const SizedBox(height: 4),
       Text(label,
-          style: const TextStyle(
-              fontSize: 9, letterSpacing: 1, color: Colors.white38)),
+          style: const TextStyle(fontSize: 9, letterSpacing: 1,
+              color: Colors.white38)),
       const SizedBox(height: 2),
       Text(value,
-          style: TextStyle(
-              fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
+              color: color)),
     ]);
   }
 
@@ -792,21 +1111,18 @@ class _MainScreenState extends State<MainScreen>
 
     return Column(children: [
       GestureDetector(
-        onTap: _isBusy
-            ? null
+        onTap: _isBusy ? null
             : () => _isConnected ? _disconnect() : _onConnectTapped(),
         child: ScaleTransition(
           scale: (!_isConnected && !_isBusy)
-              ? _pulseAnim
-              : kAlwaysCompleteAnimation,
+              ? _pulseAnim : kAlwaysCompleteAnimation,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 400),
             width: 148, height: 148,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
                 colors: _isConnected
                     ? [const Color(0xFF00C853), const Color(0xFF00897B)]
                     : _isBusy
@@ -816,32 +1132,25 @@ class _MainScreenState extends State<MainScreen>
               boxShadow: [
                 BoxShadow(
                   color: (_isConnected
-                          ? const Color(0xFF00C853)
-                          : _isBusy
-                              ? Colors.orange
-                              : const Color(0xFFE8622A))
-                      .withOpacity(0.5),
+                      ? const Color(0xFF00C853)
+                      : _isBusy ? Colors.orange
+                          : const Color(0xFFE8622A)).withOpacity(0.5),
                   blurRadius: 40, spreadRadius: 6,
                 ),
               ],
             ),
             child: _isBusy
-                ? const Center(
-                    child: SizedBox(
-                      width: 48, height: 48,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 3),
-                    ))
+                ? const Center(child: SizedBox(width: 48, height: 48,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 3)))
                 : const Icon(Icons.power_settings_new_rounded,
                     size: 64, color: Colors.white),
           ),
         ),
       ),
       const SizedBox(height: 14),
-      Text(label,
-          style: TextStyle(
-              fontSize: 13, fontWeight: FontWeight.bold,
-              letterSpacing: 2, color: labelColor)),
+      Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold,
+          letterSpacing: 2, color: labelColor)),
     ]);
   }
 
@@ -867,10 +1176,8 @@ class _MainScreenState extends State<MainScreen>
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 14, color: const Color(0xFFFF8C5A)),
         const SizedBox(width: 6),
-        Text(label,
-            style: const TextStyle(
-                fontSize: 12, color: Colors.white70,
-                fontWeight: FontWeight.w500)),
+        Text(label, style: const TextStyle(fontSize: 12,
+            color: Colors.white70, fontWeight: FontWeight.w500)),
       ]),
     );
   }
@@ -882,61 +1189,47 @@ class _MainScreenState extends State<MainScreen>
       builder: (ctx) => Container(
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.92),
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           border: Border.all(color: Colors.white10),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40, height: 4,
-              decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2)),
-            ),
-            const SizedBox(height: 20),
-            const Text('SETTINGS',
-                style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.bold,
-                    letterSpacing: 3, color: Colors.white54)),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.file_upload_outlined,
-                  color: Color(0xFFFF8C5A)),
-              title: const Text('Import .conf File'),
-              onTap: () { Navigator.pop(ctx); _importConfig(); },
-            ),
-            ListTile(
-              leading: const Icon(Icons.privacy_tip_outlined,
-                  color: Color(0xFFFF8C5A)),
-              title: const Text('Privacy Policy & Terms'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openUrl('https://www.jinoca.com/demo.html');
-              },
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 12),
+          Container(width: 40, height: 4,
+              decoration: BoxDecoration(color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 20),
+          const Text('SETTINGS',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
+                  letterSpacing: 3, color: Colors.white54)),
+          const SizedBox(height: 8),
+          ListTile(
+            leading: const Icon(Icons.file_upload_outlined,
+                color: Color(0xFFFF8C5A)),
+            title: const Text('Import .conf File'),
+            onTap: () { Navigator.pop(ctx); _importConfig(); },
+          ),
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined,
+                color: Color(0xFFFF8C5A)),
+            title: const Text('Privacy Policy & Terms'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _openUrl('https://www.jinoca.com/demo.html');
+            },
+          ),
+          const SizedBox(height: 24),
+        ]),
       ),
     );
   }
 
   Future<void> _importConfig() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['conf'],
-    );
-    if (result == null) return;
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Config imported – reconnect to apply.'),
-          backgroundColor: Color(0xFF1A1A2E),
-        ),
-      );
-    }
+        type: FileType.custom, allowedExtensions: ['conf']);
+    if (result == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Config imported – reconnect to apply.'),
+      backgroundColor: Color(0xFF1A1A2E),
+    ));
   }
 }
