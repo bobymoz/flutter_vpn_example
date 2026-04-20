@@ -16,6 +16,8 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "nocix/launcher"
     private val NOTIF_CHANNEL_ID = "nocix_vpn_channel"
     private val NOTIF_ID = 1001
+    private val PREFS_NAME = "nocix_prefs"
+    private val KEY_LAUNCHED = "has_launched"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
