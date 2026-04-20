@@ -25,6 +25,31 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
 
+                
+                    // ── First launch detection ──────────────
+                    "isFirstLaunch" -> {
+                        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        val isFirst = !prefs.getBoolean(KEY_LAUNCHED, false)
+                        result.success(isFirst)
+                    }
+
+                    "markLaunched" -> {
+                        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        prefs.edit().putBoolean(KEY_LAUNCHED, true).apply()
+                        result.success(true)
+                    }
+
+                    // ── Restart app (close process) ─────────
+                    // Android will restart when the user taps the icon again.
+                    "restartApp" -> {
+                        result.success(true)
+                        // Small delay so result is delivered before process exits
+                        android.os.Handler(mainLooper).postDelayed({
+                            finishAffinity()
+                            System.exit(0)
+                        }, 300)
+                    }
+                    
                     // ── Open URL in browser ─────────────────
                     "openUrl" -> {
                         val url = call.argument<String>("url")
